@@ -20,12 +20,10 @@ IMX219 → libcamera/Picamera2 → H.264 → FFmpeg → MediaMTX → RTSP → VL
 ## Run
 
 Start MediaMTX:
-
 ./mediamtx mediamtx.yml
-In another terminal:
 
+In another terminal:
 python3 udp_cam_stream.py
 
 Open the stream in VLC:
-
 rtsp://<RASPBERRY_PI_IP>:8554/cam
