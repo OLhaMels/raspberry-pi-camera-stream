@@ -101,6 +101,8 @@ def main():
     parser.add_argument("--scan-size", default="640x480",
                         help="size of the stream used for decoding")
     parser.add_argument("--bitrate", type=int, default=4_000_000)
+    parser.add_argument("--threads", type=int, default=4,
+                        help="encoder threads (slice-threaded, so no added delay)")
     parser.add_argument("--interval", type=float, default=0.05,
                         help="seconds between scans (0 = as fast as frames arrive)")
     parser.add_argument("--repeat-after", type=float, default=5.0,
@@ -119,8 +121,9 @@ def main():
     scan_w, scan_h = (int(v) for v in args.scan_size.split("x"))
 
     from picamera2 import Picamera2
-    from picamera2.encoders import H264Encoder
     from picamera2.outputs import FfmpegOutput
+
+    from low_latency_encoder import LowLatencyH264Encoder
 
     picam2 = Picamera2()
     picam2.configure(picam2.create_video_configuration(
@@ -134,9 +137,12 @@ def main():
     else:
         # TCP, not the default UDP: over UDP MediaMTX has to remux this
         # publisher's oversized RTP packets and drops some, which shows up as
-        # corrupted macroblocks in the viewer.
-        output = FfmpegOutput("-f rtsp -rtsp_transport tcp " + args.rtsp)
-        picam2.start_recording(H264Encoder(bitrate=args.bitrate), output)
+        # corrupted macroblocks in the viewer. muxdelay/muxpreload stop ffmpeg
+        # from holding packets back before it starts sending.
+        output = FfmpegOutput(
+            "-muxdelay 0 -muxpreload 0 -f rtsp -rtsp_transport tcp " + args.rtsp)
+        picam2.start_recording(
+            LowLatencyH264Encoder(bitrate=args.bitrate, threads=args.threads), output)
         print("Video: {} ({}x{})".format(args.rtsp, main_w, main_h), flush=True)
 
     reporter = Reporter(args.repeat_after, args.log)
