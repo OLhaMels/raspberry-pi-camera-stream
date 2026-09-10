@@ -14,10 +14,11 @@ so a developer can confirm that a read succeeded, and it can be switched off
 ```
 IMX219 -> libcamera / picamera2
             |
-            +-- main  1280x720 -> H.264 (libx264, slice-threaded)
-            |                       -> ffmpeg -> MediaMTX -> RTSP -> viewer
+            +-- main  1280x720 -> overlay burned in -> H.264 (libx264, slice-threaded)
+            |                                            -> ffmpeg -> MediaMTX -> RTSP -> viewer
             |
             +-- lores  640x480 YUV420 -> zbar -> payload -> handle_code()
+                                                        -> overlay state
 ```
 
 Both streams leave the ISP at the same time, so a read never depends on the
@@ -30,6 +31,7 @@ video link, on the network, or on H.264 artefacts. Only the preview does.
 | `qr_stream.py` | The program. Camera setup, streaming, scan loop, reporting. |
 | `zbar_lite.py` | ctypes binding to libzbar — scan a grayscale frame, get payloads back. |
 | `low_latency_encoder.py` | H.264 encoder subclass that removes picamera2's frame-threading delay. |
+| `osd.py` | Draws the highlight box and the readout into the outgoing frames. |
 | `mediamtx.yml` | MediaMTX config. Unmodified upstream default for v1.21.0. |
 | `mediamtx` | The RTSP server binary. **Not in git** (63 MB) — see below. |
 | `tests/qr_test.png` | A bare QR code, payload `https://example.com/pi-cam-test-42`. |
@@ -105,6 +107,29 @@ Prefer TCP. Over UDP this stream loses RTP packets — MediaMTX has to remux the
 publisher's oversized packets (1460 > 1440 bytes) — and the loss arrives as
 corrupted macroblocks.
 
+## The on-screen overlay
+
+While the video is being published, every code that is in frame gets a green box
+around it, and the payload appears in a readout at the bottom left together with
+the time of the read, zbar's quality figure and the code's size in pixels. The
+box tracks the code as it moves and disappears about a third of a second after
+it leaves the frame; the readout stays up for `--osd-hold` seconds (default 5)
+so it can still be read after the code is gone. `--no-osd` turns all of it off.
+
+The overlay is drawn **on the Pi**, into the frames before they are encoded, and
+that is deliberate. The box belongs to one specific frame: the Pi knows where
+the code was in the frame it just scanned. A viewer drawing the same box would
+land it on whatever frame is on screen a couple of hundred milliseconds later,
+so it would run ahead of the code and jitter against it. Burning it in also
+means the overlay shows up in any player, with no client-side code at all.
+
+The cost is about 10% of one core (of four) and, of course, that the overlay is
+part of the video: it cannot be switched off from the viewer's end, only with
+`--no-osd` on the Pi. Drawing avoids OpenCV entirely - boxes are numpy slice
+assignments, and the text is rendered once per payload with PIL and then blitted
+as a mask - and it sticks to green, white and black, which mean the same thing
+whatever way round the XBGR8888 channels are read.
+
 ## Checking the decoder without a camera
 
 ```sh
@@ -144,6 +169,8 @@ the wall behind the workbench.
 | `--interval` | `0.05` | Seconds between scans. `0` scans as fast as frames arrive. |
 | `--repeat-after` | `5.0` | Seconds a code must be gone before it is reported again. |
 | `--heartbeat` | `60.0` | Seconds between liveness lines. `0` disables. |
+| `--no-osd` | overlay on | Do not burn the box and readout into the video. |
+| `--osd-hold` | `5.0` | Seconds the readout stays up after a read. |
 | `--log` | none | File to append reads to. |
 | `--self-test` | none | Decode a still image and exit. |
 

@@ -109,6 +109,10 @@ def main():
                         help="seconds a code must be gone before it is reported again")
     parser.add_argument("--heartbeat", type=float, default=60.0,
                         help="seconds between liveness lines (0 = off)")
+    parser.add_argument("--no-osd", dest="osd", action="store_false",
+                        help="do not burn the box and readout into the video")
+    parser.add_argument("--osd-hold", type=float, default=5.0,
+                        help="seconds the readout stays up after a read")
     parser.add_argument("--log", help="append every read to this file")
     parser.add_argument("--self-test", metavar="IMAGE",
                         help="decode a still image and exit (no camera needed)")
@@ -131,6 +135,21 @@ def main():
         lores={"size": (scan_w, scan_h), "format": "YUV420"},
     ))
 
+    osd = None
+    if args.osd and not args.no_stream:
+        from picamera2 import MappedArray
+
+        from osd import Osd
+
+        osd = Osd((main_w, main_h), (scan_w, scan_h), hold=args.osd_hold)
+
+        def draw_overlay(request):
+            # Runs on the camera thread, before the frame reaches the encoder.
+            with MappedArray(request, "main") as mapped:
+                osd.draw(mapped.array)
+
+        picam2.pre_callback = draw_overlay
+
     output = None
     if args.no_stream:
         picam2.start()
@@ -147,8 +166,9 @@ def main():
 
     reporter = Reporter(args.repeat_after, args.log)
     scanner = zbar_lite.Scanner()
-    print("Scanning {}x{} with zbar {} - Ctrl+C to stop".format(
-        scan_w, scan_h, zbar_lite.version()), flush=True)
+    print("Scanning {}x{} with zbar {}{} - Ctrl+C to stop".format(
+        scan_w, scan_h, zbar_lite.version(),
+        ", OSD on" if osd is not None else ""), flush=True)
 
     scans = 0
     started = time.monotonic()
@@ -158,6 +178,10 @@ def main():
             frame = picam2.capture_array("lores")
             for code in scanner.scan_gray(
                     gray_plane(frame, scan_w, scan_h), scan_w, scan_h):
+                if osd is not None:
+                    # Every scan, not just new codes: this keeps the box on the
+                    # code while it is held in front of the camera.
+                    osd.show(code)
                 if reporter.offer(code):
                     handle_code(code)
             scans += 1
