@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Captures and logs produced while testing the video path
+*.h264
+*.ts
+*.mp4
+*.log
+*.out
+qr_hits.log
+
+# SDP handed from ffmpeg to RtspServer. Written to a temp dir and removed on
+# exit, but a hard kill can leave one behind in the working directory.
+*.sdp

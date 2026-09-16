@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Captures and logs produced while testing the video path
+*.h264
+*.ts
+*.mp4
+*.log
+*.out
+qr_hits.log
